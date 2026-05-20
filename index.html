@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Newsstand">
+  <title>The Newsstand</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0a0a0a; color: #e5e5e5; font-family: -apple-system, BlinkMacSystemFont, sans-serif; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; }
+    .accent { color: #d4a373; }
+    .btn-primary { background: #5a3a1a; border: 2px solid #8a5a2a; }
+    .btn-primary:hover { background: #6a4a2a; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div class="max-w-2xl mx-auto px-4 py-10">
+    <header class="text-center mb-10">
+      <div class="text-5xl mb-2">📰</div>
+      <h1 class="text-4xl font-bold accent mb-1">The Newsstand</h1>
+      <p class="italic text-gray-400 text-sm">Today's news, filtered through Matt's lens</p>
+    </header>
+
+    <div id="hero" class="mb-8">
+      <button id="runBtn" class="w-full py-6 text-xl font-semibold rounded-lg btn-primary transition">
+        📡 Get Today's Paper
+      </button>
+    </div>
+
+    <div id="loading" class="hidden text-center py-12">
+      <div class="text-2xl animate-pulse">📰 Curating your feed...</div>
+      <p id="loadingDetail" class="text-sm text-gray-500 mt-3">Aggregating sources...</p>
+    </div>
+
+    <div id="feed" class="space-y-2"></div>
+
+    <div id="actions" class="hidden mt-8 flex gap-3">
+      <button id="copyBtn" class="flex-1 py-3 rounded bg-gray-800 hover:bg-gray-700 transition">📋 Copy as Markdown</button>
+      <button id="refreshBtn" class="flex-1 py-3 rounded bg-gray-800 hover:bg-gray-700 transition">🔄 Run Again</button>
+    </div>
+  </div>
+
+  <script>
+    const CONFIG = {
+      // PASTE YOUR CLOUDFLARE WORKER URL HERE (from Part B, Step 15)
+      WORKER_URL: 'https://newsstand-worker.mlancourt.workers.dev',
+      RSS_FETCH_URL: 'https://api.rss2json.com/v1/api.json',
+      ITEMS_PER_FEED: 8,
+      MODEL: 'claude-opus-4-6',
+    };
+
+    let cachedSources = null;
+    let latestFeed = null;
+
+    async function loadConfig() {
+      const srcRes = await fetch('sources.json');
+      cachedSources = await srcRes.json();
+    }
+
+    async function fetchOneRSS(source) {
+      try {
+        const url = `${CONFIG.RSS_FETCH_URL}?rss_url=${encodeURIComponent(source.url)}&count=${CONFIG.ITEMS_PER_FEED}`;
+        const res = await fetch(url);
+        const json = await res.json();
+        if (json.status !== 'ok') return [];
+        return json.items.map(item => ({
+          category: source.category,
+          source: source.name,
+          title: item.title,
+          description: stripHtml(item.description || ''),
+          link: item.link,
+          pubDate: item.pubDate,
+        }));
+      } catch (e) {
+        console.error(`Failed: ${source.name}`, e);
+        return [];
+      }
+    }
+
+    function stripHtml(html) {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      return (tmp.textContent || tmp.innerText || '').slice(0, 300).trim();
+    }
+
+    function buildPayload(allItems) {
+      const byCategory = {};
+      allItems.forEach(item => {
+        if (!byCategory[item.category]) byCategory[item.category] = [];
+        byCategory[item.category].push(item);
+      });
+      const lines = ["Here are today's RSS items. Process them per your editorial instructions and respond with ONLY the JSON output specified in your system prompt."];
+      for (const [cat, items] of Object.entries(byCategory)) {
+        lines.push(`\n## Category: ${cat}\n`);
+        items.forEach(item => {
+          lines.push(`SOURCE: ${item.source}`);
+          lines.push(`TITLE: ${item.title}`);
+          lines.push(`SUMMARY: ${item.description}`);
+          lines.push(`URL: ${item.link}`);
+          lines.push(`DATE: ${item.pubDate}`);
+          lines.push('---');
+        });
+      }
+      return lines.join('\n');
+    }
+
+    async function callClaude(payload) {
+      const res = await fetch(CONFIG.WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payload, model: CONFIG.MODEL }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message || data.error);
+      const text = data.content[0].text.trim();
+      const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+      return JSON.parse(cleaned);
+    }
+
+    function renderFeed(feed) {
+      latestFeed = feed;
+      const container = document.getElementById('feed');
+      const updated = new Date(feed.generated_at).toLocaleString('en-US', { timeZone: 'America/Chicago', dateStyle: 'medium', timeStyle: 'short' });
+      let html = `<div class="text-center text-sm text-gray-500 mb-6">Last updated: ${updated} CST</div>`;
+      feed.categories.forEach(cat => {
+        html += `<div class="mb-6"><h2 class="text-2xl font-bold mb-3 accent">${cat.emoji} ${cat.name}</h2>`;
+        cat.stories.forEach(s => {
+          html += `
+            <div class="card rounded-lg p-5 mb-3">
+              <h3 class="font-bold text-lg mb-2 leading-snug">${s.headline}</h3>
+              <p class="text-gray-300 mb-3 leading-relaxed">${s.synopsis}</p>
+              ${s.why_it_matters ? `<p class="text-sm italic text-amber-400 mb-2">Why it matters: ${s.why_it_matters}</p>` : ''}
+              <a href="${s.source_url}" target="_blank" rel="noopener" class="text-sm text-amber-400 hover:underline">${s.source_name} →</a>
+            </div>`;
+        });
+        html += '</div>';
+      });
+      if (feed.skip_notes && feed.skip_notes.length) {
+        html += '<div class="card rounded-lg p-5 mt-6"><h3 class="font-bold mb-3 text-sm uppercase tracking-wide text-gray-400">Skip Notes</h3><ul class="text-sm text-gray-400 space-y-2">';
+        feed.skip_notes.forEach(n => html += `<li>• ${n}</li>`);
+        html += '</ul></div>';
+      }
+      container.innerHTML = html;
+      document.getElementById('actions').classList.remove('hidden');
+    }
+
+    function feedToMarkdown(feed) {
+      const date = new Date(feed.generated_at).toLocaleString('en-US', { timeZone: 'America/Chicago' });
+      let md = `# The Newsstand — ${date} CST\n\n`;
+      feed.categories.forEach(cat => {
+        md += `## ${cat.emoji} ${cat.name}\n\n`;
+        cat.stories.forEach(s => {
+          md += `### ${s.headline}\n\n${s.synopsis}\n\n`;
+          if (s.why_it_matters) md += `*Why it matters: ${s.why_it_matters}*\n\n`;
+          md += `**Source:** [${s.source_name}](${s.source_url})\n\n---\n\n`;
+        });
+      });
+      if (feed.skip_notes?.length) {
+        md += `## Skip Notes\n\n` + feed.skip_notes.map(n => `- ${n}`).join('\n') + '\n';
+      }
+      return md;
+    }
+
+    async function runFeed() {
+      const btn = document.getElementById('runBtn');
+      const loading = document.getElementById('loading');
+      const detail = document.getElementById('loadingDetail');
+      const feed = document.getElementById('feed');
+      btn.classList.add('hidden');
+      loading.classList.remove('hidden');
+      feed.innerHTML = '';
+      try {
+        if (!cachedSources) await loadConfig();
+        detail.textContent = `Fetching ${cachedSources.length} sources...`;
+        const itemArrays = await Promise.all(cachedSources.map(fetchOneRSS));
+        const allItems = itemArrays.flat();
+        if (allItems.length === 0) throw new Error('No items fetched from any source. Check that your sources.json URLs are valid RSS feeds.');
+        detail.textContent = `Sending ${allItems.length} items to the editor...`;
+        const payload = buildPayload(allItems);
+        const result = await callClaude(payload);
+        loading.classList.add('hidden');
+        renderFeed(result);
+      } catch (e) {
+        loading.classList.add('hidden');
+        feed.innerHTML = `<div class="card rounded p-5 text-red-400"><b>Error:</b> ${e.message}</div>`;
+        btn.classList.remove('hidden');
+      }
+    }
+
+    document.getElementById('runBtn').addEventListener('click', runFeed);
+    document.getElementById('refreshBtn').addEventListener('click', () => {
+      document.getElementById('feed').innerHTML = '';
+      document.getElementById('actions').classList.add('hidden');
+      document.getElementById('runBtn').classList.remove('hidden');
+      runFeed();
+    });
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      if (!latestFeed) return;
+      navigator.clipboard.writeText(feedToMarkdown(latestFeed));
+      const b = document.getElementById('copyBtn');
+      b.textContent = '✓ Copied to clipboard!';
+      setTimeout(() => b.textContent = '📋 Copy as Markdown', 2000);
+    });
+
+    loadConfig();
+  </script>
+</body>
+</html>
