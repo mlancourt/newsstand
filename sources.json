@@ -1,19 +1,18 @@
 [
   { "name": "WPR", "category": "Local News", "url": "https://www.wpr.org/feed" },
-  { "name": "Milwaukee Journal Sentinel", "category": "Local News", "url": "https://www.jsonline.com/arcio/rss/" },
-  { "name": "Packers Wire", "category": "Local Sports", "url": "https://packerswire.usatoday.com/feed/" },
-  { "name": "Bucks Wire", "category": "Local Sports", "url": "https://buckswire.usatoday.com/feed/" },
-  { "name": "AP Politics", "category": "National Politics", "url": "https://feeds.apnews.com/rss/politics" },
+  { "name": "Urban Milwaukee", "category": "Local News", "url": "https://urbanmilwaukee.com/feed/" },
+  { "name": "Brew Crew Ball", "category": "Local Sports", "url": "https://www.brewcrewball.com/rss/index.xml" },
+  { "name": "Acme Packing Company", "category": "Local Sports", "url": "https://www.acmepackingcompany.com/rss/index.xml" },
+  { "name": "Brew Hoop", "category": "Local Sports", "url": "https://www.brewhoop.com/rss/index.xml" },
   { "name": "NPR Politics", "category": "National Politics", "url": "https://feeds.npr.org/1014/rss.xml" },
-  { "name": "WPR Central Time", "category": "Local Politics", "url": "https://www.wpr.org/programs/central-time/feed" },
-  { "name": "WISN", "category": "Local Politics", "url": "https://www.wisn.com/feeds/rss.rss" },
+  { "name": "The Hill", "category": "National Politics", "url": "https://thehill.com/feed/" },
+  { "name": "Wisconsin Examiner", "category": "Local Politics", "url": "https://wisconsinexaminer.com/feed/" },
   { "name": "The Verge", "category": "Tech", "url": "https://www.theverge.com/rss/index.xml" },
   { "name": "Ars Technica", "category": "Tech", "url": "https://feeds.arstechnica.com/arstechnica/index" },
   { "name": "Science Daily", "category": "Science", "url": "https://www.sciencedaily.com/rss/all.xml" },
   { "name": "Phys.org", "category": "Science", "url": "https://phys.org/rss-feed/" },
   { "name": "Variety", "category": "Entertainment", "url": "https://variety.com/feed/" },
-  { "name": "AV Club", "category": "Entertainment", "url": "https://www.avclub.com/rss" },
   { "name": "Tricycle", "category": "Religion / Spirituality", "url": "https://tricycle.org/feed/" },
   { "name": "The Marginalian", "category": "Religion / Spirituality", "url": "https://www.themarginalian.org/feed/" },
-  { "name": "Mysterious Universe", "category": "Paranormal / Fringe", "url": "https://mysteriousuniverse.org/feed/" }
+  { "name": "The Debrief", "category": "Paranormal / Fringe", "url": "https://thedebrief.org/feed/" }
 ]

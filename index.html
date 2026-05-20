@@ -62,7 +62,7 @@
 
     async function fetchOneRSS(source) {
       try {
-        const url = `${CONFIG.RSS_FETCH_URL}?rss_url=${encodeURIComponent(source.url)}&count=${CONFIG.ITEMS_PER_FEED}`;
+        const url = `${CONFIG.RSS_FETCH_URL}?rss_url=${encodeURIComponent(source.url)}`;
         const res = await fetch(url);
         const json = await res.json();
         if (json.status !== 'ok') return [];
