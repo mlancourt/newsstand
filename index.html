@@ -113,10 +113,43 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ payload, model: CONFIG.MODEL }),
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message || data.error);
-      const text = data.content[0].text.trim();
-      const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+
+      // Errors come back as JSON; a successful run streams as text/event-stream.
+      const ctype = res.headers.get('Content-Type') || '';
+      if (!res.ok || ctype.includes('application/json')) {
+        let msg = 'Editor request failed (HTTP ' + res.status + ')';
+        try { const j = await res.json(); msg = (j.error && (j.error.message || j.error)) || msg; } catch (e) {}
+        throw new Error(msg);
+      }
+
+      // Read the SSE stream and accumulate Claude's text deltas.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullText = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl;
+        while ((nl = buffer.indexOf('\n')) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith('data:')) continue;
+          const data = line.slice(5).trim();
+          if (!data || data === '[DONE]') continue;
+          let ev;
+          try { ev = JSON.parse(data); } catch (e) { continue; }
+          if (ev.type === 'content_block_delta' && ev.delta && ev.delta.text) {
+            fullText += ev.delta.text;
+          } else if (ev.type === 'error') {
+            throw new Error((ev.error && ev.error.message) || 'Stream error from editor.');
+          }
+        }
+      }
+
+      const cleaned = fullText.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim();
+      if (!cleaned) throw new Error('The editor returned an empty response. Try again.');
       return JSON.parse(cleaned);
     }
 
