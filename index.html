@@ -30,9 +30,24 @@
       </button>
     </div>
 
-    <div id="loading" class="hidden text-center py-12">
-      <div class="text-2xl animate-pulse">📰 Curating your feed...</div>
-      <p id="loadingDetail" class="text-sm text-gray-500 mt-3">Aggregating sources...</p>
+    <div id="loading" class="hidden py-12">
+      <div class="text-center">
+        <div class="text-2xl mb-1">📰 Curating your feed…</div>
+        <div id="loadingTimer" class="text-5xl font-mono accent tabular-nums my-2">0:00</div>
+        <p id="loadingDetail" class="text-sm text-gray-500">Warming up the presses…</p>
+      </div>
+
+      <div class="mt-6 max-w-sm mx-auto">
+        <div class="h-2 w-full rounded-full bg-gray-800 overflow-hidden">
+          <div id="loadingBar" class="h-full rounded-full bg-amber-600 transition-all duration-500 ease-out" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="mt-6 max-w-sm mx-auto space-y-2 text-sm">
+        <div id="phase1" class="flex items-center gap-2 text-gray-500"><span class="phase-icon w-4 inline-block text-center">○</span> Aggregating sources</div>
+        <div id="phase2" class="flex items-center gap-2 text-gray-500"><span class="phase-icon w-4 inline-block text-center">○</span> Sending to the editor</div>
+        <div id="phase3" class="flex items-center gap-2 text-gray-500"><span class="phase-icon w-4 inline-block text-center">○</span> Curating cards <span id="cardCount" class="accent"></span></div>
+      </div>
     </div>
 
     <div id="feed" class="space-y-2"></div>
@@ -54,6 +69,59 @@
 
     let cachedSources = null;
     let latestFeed = null;
+
+    // ---- Loading progress helpers ----
+    let timerInterval = null;
+    let startTime = null;
+
+    function startTimer() {
+      startTime = Date.now();
+      const el = document.getElementById('loadingTimer');
+      const tick = () => {
+        const s = Math.floor((Date.now() - startTime) / 1000);
+        el.textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+      };
+      tick();
+      timerInterval = setInterval(tick, 250);
+    }
+
+    function stopTimer() {
+      if (timerInterval) clearInterval(timerInterval);
+      timerInterval = null;
+    }
+
+    function setBar(pct) {
+      document.getElementById('loadingBar').style.width = Math.max(0, Math.min(100, pct)) + '%';
+    }
+
+    function setPhase(id, state) {
+      // state: 'active' | 'done'
+      const el = document.getElementById(id);
+      if (!el) return;
+      const icon = el.querySelector('.phase-icon');
+      el.classList.remove('text-gray-500', 'text-amber-300', 'text-green-400');
+      if (state === 'active') {
+        el.classList.add('text-amber-300');
+        if (icon) icon.textContent = '◌';
+      } else if (state === 'done') {
+        el.classList.add('text-green-400');
+        if (icon) icon.textContent = '✓';
+      }
+    }
+
+    function resetProgress() {
+      stopTimer();
+      ['phase1', 'phase2', 'phase3'].forEach(id => {
+        const el = document.getElementById(id);
+        el.classList.remove('text-amber-300', 'text-green-400');
+        el.classList.add('text-gray-500');
+        const icon = el.querySelector('.phase-icon');
+        if (icon) icon.textContent = '○';
+      });
+      document.getElementById('cardCount').textContent = '';
+      document.getElementById('loadingTimer').textContent = '0:00';
+      setBar(0);
+    }
 
     async function loadConfig() {
       const srcRes = await fetch('sources.json');
@@ -107,7 +175,7 @@
       return lines.join('\n');
     }
 
-    async function callClaude(payload) {
+    async function callClaude(payload, onProgress) {
       const res = await fetch(CONFIG.WORKER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -142,6 +210,7 @@
           try { ev = JSON.parse(data); } catch (e) { continue; }
           if (ev.type === 'content_block_delta' && ev.delta && ev.delta.text) {
             fullText += ev.delta.text;
+            if (onProgress) onProgress(fullText);
           } else if (ev.type === 'error') {
             throw new Error((ev.error && ev.error.message) || 'Stream error from editor.');
           }
@@ -225,22 +294,47 @@
       const loading = document.getElementById('loading');
       const detail = document.getElementById('loadingDetail');
       const feed = document.getElementById('feed');
+      const cardCount = document.getElementById('cardCount');
       btn.classList.add('hidden');
       loading.classList.remove('hidden');
       feed.innerHTML = '';
+      resetProgress();
+      startTimer();
       try {
         if (!cachedSources) await loadConfig();
-        detail.textContent = `Fetching ${cachedSources.length} sources...`;
+
+        setPhase('phase1', 'active');
+        setBar(8);
+        detail.textContent = `Fetching ${cachedSources.length} sources…`;
         const itemArrays = await Promise.all(cachedSources.map(fetchOneRSS));
         const allItems = itemArrays.flat();
         if (allItems.length === 0) throw new Error('No items fetched from any source. Check that your sources.json URLs are valid RSS feeds.');
-        detail.textContent = `Sending ${allItems.length} items to the editor...`;
+        setPhase('phase1', 'done');
+
+        setPhase('phase2', 'active');
+        setBar(22);
+        detail.textContent = `Sending ${allItems.length} items to the editor…`;
         const payload = buildPayload(allItems);
-        const result = await callClaude(payload);
+        setPhase('phase2', 'done');
+        setBar(30);
+
+        setPhase('phase3', 'active');
+        detail.textContent = 'The editor is reading and writing your paper…';
+        const result = await callClaude(payload, (text) => {
+          const n = (text.match(/"headline"\s*:/g) || []).length;
+          cardCount.textContent = n ? `· ${n} curated` : '';
+          // Real progress: bar tracks actual cards produced, scaled toward the ~24 cap.
+          setBar(30 + Math.min(65, (n / 24) * 65));
+        });
+        setPhase('phase3', 'done');
+        setBar(100);
+
+        stopTimer();
         loading.classList.add('hidden');
         renderFeed(result);
         saveFeed(result);
       } catch (e) {
+        stopTimer();
         loading.classList.add('hidden');
         feed.innerHTML = `<div class="card rounded p-5 text-red-400"><b>Error:</b> ${e.message}</div>`;
         btn.classList.remove('hidden');
